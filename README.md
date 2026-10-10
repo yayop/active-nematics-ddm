@@ -82,6 +82,7 @@ referencia/benchmark futuro; el MVP actual es NumPy/SciPy independiente.
 results/<run>/
 ├─ source_config.toml
 ├─ resolved_config.json
+├─ run_status.json
 ├─ provenance.json
 ├─ photobleach_trace.csv
 ├─ ddm_radial.npz

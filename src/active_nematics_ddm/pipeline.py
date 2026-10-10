@@ -371,6 +371,21 @@ def _prepare_output(target: Path, overwrite: bool) -> None:
     target.mkdir()
 
 
+def _record_status(target: Path, phase: str, **details: Any) -> None:
+    """Atomically update a small machine-readable progress marker."""
+
+    payload = {
+        "updated_utc": datetime.now(UTC).isoformat(),
+        "phase": phase,
+        **details,
+    }
+    destination = target / "run_status.json"
+    temporary = target / ".run_status.json.tmp"
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    temporary.replace(destination)
+    print(f"[{payload['updated_utc']}] {phase}", flush=True)
+
+
 def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
     """Run the isotropic MVP and return the results directory."""
 
@@ -379,12 +394,15 @@ def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
     validate_config(config)
     validate_output_location(config)
     _prepare_output(config.output.directory, config.output.overwrite)
+    _record_status(config.output.directory, "prepared")
     shutil.copy2(config.source, config.output.directory / "source_config.toml")
     (config.output.directory / "resolved_config.json").write_text(
         json.dumps(config.to_dict(), indent=2, sort_keys=True), encoding="utf-8"
     )
 
+    _record_status(config.output.directory, "hashing_input")
     input_identity = _input_identity(config.input)
+    _record_status(config.output.directory, "reading_frames")
     frames = read_frames(
         config.input.path,
         frame_start=config.input.frame_start,
@@ -399,6 +417,12 @@ def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
     )
     effective_pixel = config.input.pixel_size_um * config.input.spatial_bin
     effective_interval = config.input.frame_interval_s * config.input.frame_step
+    _record_status(
+        config.output.directory,
+        "correcting_photobleach",
+        selected_frame_count=int(frames.shape[0]),
+        selected_frame_shape=list(frames.shape[1:]),
+    )
     photobleach = apply_photobleach_correction(
         frames,
         frame_interval_s=effective_interval,
@@ -421,6 +445,7 @@ def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
         maximum=lag_max,
         per_decade=config.analysis.lags_per_decade,
     )
+    _record_status(config.output.directory, "computing_ddm", lag_count=int(len(lags)))
     result = compute_radial_ddm(
         frames,
         pixel_size_um=effective_pixel,
@@ -437,6 +462,7 @@ def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
     )
     fits = None
     if config.fit.enabled:
+        _record_status(config.output.directory, "fitting_relaxations")
         fits = fit_relaxation(
             result,
             q_min_um_inv=config.fit.q_min_um_inv,
@@ -449,10 +475,12 @@ def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
             max_initial_fraction=config.fit.max_initial_fraction,
         )
         _save_fits(config.output.directory / "fits.csv", fits)
+    _record_status(config.output.directory, "writing_results")
     _save_npz(config.output.directory / "ddm_radial.npz", result, fits)
     _plot_overview(config.output.directory / "overview.png", result, fits)
     provenance = _provenance(config, frames, result, input_identity, photobleach)
     (config.output.directory / "provenance.json").write_text(
         json.dumps(provenance, indent=2, sort_keys=True), encoding="utf-8"
     )
+    _record_status(config.output.directory, "complete")
     return config.output.directory

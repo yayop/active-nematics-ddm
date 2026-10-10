@@ -103,6 +103,8 @@ def test_pipeline_writes_trace_and_correction_suppresses_static_bleach_artifact(
     assert bleaching["rate_s_inv"] == pytest.approx(0.4, rel=2e-6)
     assert bleaching["r_squared_log_mean"] > 0.999999
     assert bleaching["trace_file"] == "photobleach_trace.csv"
+    status = json.loads((corrected_output / "run_status.json").read_text(encoding="utf-8"))
+    assert status["phase"] == "complete"
     np.testing.assert_array_equal(np.load(movie), frames)
 
 
