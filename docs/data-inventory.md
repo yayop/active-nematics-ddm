@@ -1,6 +1,6 @@
 # Inventario inicial de datos (2026-10-10)
 
-## Qué existe localmente
+## Qué existía en los árboles de análisis
 
 No se encontraron vídeos/imágenes crudas en `AN-bulk` ni `ParamsExp` con
 extensiones AVI, MP4, MOV, MKV, WMV, TIFF, ND2, CZI, LIF, STK, MRC, OME o SER.
@@ -33,27 +33,39 @@ Se identificaron seis series fuente y variantes PIVlab/PIVlab2:
 - `Bulk_1_12_11` — 7199 pares de flujo, ~3599 s;
 - `bulk2` — 7199.
 
-El NAS no respondió durante una prueba de 30 s. Por tanto el repositorio y el
-demo están completos, pero el primer análisis físico queda a la espera de que
-esa ruta sea visible/montada.
+La raíz se volvió accesible durante la preparación de la primera corrida. El
+host y la ruta exactos siguen sin versionarse.
 
 ## Serie con calibración recuperada
 
-`ParamsExp/results/.../summary.json` documenta para `Bulk_1_12_11`:
+El ND2 original de `Bulk_1_12_11` se inspeccionó directamente:
 
-- secuencia: `ImageSequence_divide_background_median`;
-- 7200 frames de orientación / 7199 pares de flujo;
-- frame 1120×1578 px;
-- 0.7 µm/px;
-- 0.5 s/frame (2 fps);
-- FOV 784×1104.6 µm;
-- duración aproximada 60 min;
-- paso RAFT 12 px (8.4 µm) y orientación 10 px (7 µm).
+- archivo ND2 de 23.731 GiB, un canal, `T=7200`, `Y=1578`, `X=1120`;
+- `uint16` con 12 bits significativos;
+- calibración embebida `0.65 µm/px` en x e y;
+- timestamps 0–3600.2414 s, paso mediano `0.500102976 s`;
+- exposición 500 ms, objetivo 10× NA 0.3 y cámara Andor Zyla;
+- la media cae aproximadamente 34% durante la hora.
 
-La extensión de los archivos individuales no consta en los artefactos locales.
-El loader acepta un directorio con TIFF/PNG/JPEG/BMP/NPY y orden natural. La
-configuración piloto reproducible está en
-`configs/bulk_1_12_11.example.toml`.
+Los análisis previos usaron `0.7 µm/px` y `0.5 s/frame`. La discrepancia de
+escala espacial (~7.7%) debe resolverse antes de combinar DDM con PIV/RAFT; la
+corrida DDM usa por ahora el valor embebido de `0.65 µm/px` y registra ambas
+decisiones de manera explícita.
+
+La carpeta `ImageSequence` contiene TIFF reescalados que no son equivalentes
+pixel a pixel al ND2 y no tiene manifiesto de transformación. La carpeta
+`ImageSequence_divide_background_median` sí tiene manifiesto, pero se declara
+`uint8_preview`: división por mediana temporal, cuantización a 8 bits y clipping
+global 1–99.8%. Sirve para QC visual, no como fuente cuantitativa final.
+
+El flat-field `Backgrounds/background_median.tif` es la mediana de los 7200
+frames. El pipeline lo aplica al ND2 en `float32`, sin clipping. La caída global
+se trata como análisis de sensibilidad con una curva exponencial suave y se
+compara después contra ventanas sin corrección; no se normaliza cada frame.
+
+La configuración piloto reproducible está en
+`configs/bulk_1_12_11.example.toml`. El loader ND2 rechaza posiciones, canales o
+planos Z ambiguos en vez de concatenarlos silenciosamente.
 
 ## Almacenamiento y staging
 

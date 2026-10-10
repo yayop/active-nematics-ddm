@@ -21,6 +21,7 @@ dependencies = [
   "imageio>=2.34",
   "imageio-ffmpeg>=0.5",
   "matplotlib>=3.8",
+  "nd2>=0.10,<0.12",
   "numpy>=1.26",
   "scipy>=1.12",
   "threadpoolctl>=3.4",

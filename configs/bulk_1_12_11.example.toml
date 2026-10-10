@@ -1,18 +1,19 @@
-# Piloto basado en los metadatos existentes en ParamsExp.
-# El NAS no estaba accesible al crear este archivo. Copiar este archivo como
-# `configs/local.bulk_1_12_11.toml` y reemplazar la ruta localmente.
+# Piloto basado en los metadatos embebidos del ND2 original. Copiar como
+# `configs/local.bulk_1_12_11.toml` y reemplazar las rutas localmente.
 [input]
-path = "../data/Bulk_1_12_11/ImageSequence_divide_background_median"
-pixel_size_um = 0.7
-frame_interval_s = 0.5
+path = "../data/Bulk_1_12_11.nd2"
+flatfield_path = "../data/Bulk_1_12_11/Backgrounds/background_median.tif"
+flatfield_dark_level = 0.0
+pixel_size_um = 0.65
+frame_interval_s = 0.500102975845
 frame_start = 0
 frame_step = 1
 
 # Piloto de 20 min. La secuencia completa tiene 7200 frames (~60 min).
 max_frames = 2400
 
-# Binning 2× mantiene q_Nyquist ≈ 2.24 rad/µm y reduce frames+FFT de
-# ~102 GB a ~25.5 GB para la hora completa; el piloto usa bastante menos.
+# Binning 2× mantiene q_Nyquist ≈ 2.42 rad/µm y reduce frames+FFT a
+# ~25.5 GB para la hora completa; el piloto usa bastante menos.
 spatial_bin = 2
 
 [analysis]
@@ -23,6 +24,12 @@ max_pairs_per_lag = 384
 q_bins = 72
 window = "blackman-harris"
 subtract_frame_mean = true
+# Activar sólo con un background/offset medido independientemente; ver README.
+photobleach_method = "none"
+# photobleach_background_level = 100.0
+# photobleach_min_r_squared = 0.90
+# photobleach_min_drop_fraction = 0.02
+# photobleach_max_gain = 2.0
 workers = 8
 pair_batch_size = 8
 

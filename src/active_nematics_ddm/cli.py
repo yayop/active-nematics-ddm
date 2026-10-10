@@ -48,6 +48,14 @@ def _validate_batch_configs(configs: list[RunConfig]) -> None:
                     raise ValueError(
                         f"batch output {output} overlaps another run's input/config {protected}"
                     )
+            for output, flatfield in (
+                (left_output, right.input.flatfield_path),
+                (right_output, left.input.flatfield_path),
+            ):
+                if flatfield is not None and is_same_or_ancestor(output, flatfield):
+                    raise ValueError(
+                        f"batch output {output} contains another run's flat-field {flatfield}"
+                    )
 
 
 def _demo_config(directory: Path, video: Path) -> Path:

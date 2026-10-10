@@ -22,6 +22,8 @@ class InputConfig:
     channel: int | None = None
     roi: tuple[int, int, int, int] | None = None
     spatial_bin: int = 1
+    flatfield_path: Path | None = None
+    flatfield_dark_level: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,11 @@ class AnalysisConfig:
     q_max_um_inv: float | None = None
     window: str = "blackman-harris"
     subtract_frame_mean: bool = True
+    photobleach_method: str = "none"
+    photobleach_background_level: float | None = None
+    photobleach_min_r_squared: float = 0.90
+    photobleach_min_drop_fraction: float = 0.02
+    photobleach_max_gain: float = 2.0
     workers: int = 8
     pair_batch_size: int = 16
 
@@ -70,6 +77,8 @@ class RunConfig:
     def to_dict(self) -> dict[str, Any]:
         result = dataclasses.asdict(self)
         result["input"]["path"] = str(self.input.path)
+        if self.input.flatfield_path is not None:
+            result["input"]["flatfield_path"] = str(self.input.flatfield_path)
         result["output"]["directory"] = str(self.output.directory)
         result["source"] = str(self.source)
         return result
@@ -155,6 +164,16 @@ def load_config(path: str | Path) -> RunConfig:
     input_path = Path(inp["path"]).expanduser()
     if not input_path.is_absolute():
         input_path = (base / input_path).resolve()
+    flatfield_value = inp.get("flatfield_path")
+    if flatfield_value is not None and (
+        not isinstance(flatfield_value, str) or not flatfield_value.strip()
+    ):
+        raise ValueError("input.flatfield_path must be a non-empty string or omitted")
+    flatfield_path = None
+    if flatfield_value is not None:
+        flatfield_path = Path(flatfield_value).expanduser()
+        if not flatfield_path.is_absolute():
+            flatfield_path = (base / flatfield_path).resolve()
 
     input_config = InputConfig(
         path=input_path,
@@ -167,6 +186,10 @@ def load_config(path: str | Path) -> RunConfig:
         channel=_optional_int(inp.get("channel"), "input.channel"),
         roi=_roi(inp.get("roi")),
         spatial_bin=_integer(inp.get("spatial_bin", 1), "input.spatial_bin"),
+        flatfield_path=flatfield_path,
+        flatfield_dark_level=_number(
+            inp.get("flatfield_dark_level", 0.0), "input.flatfield_dark_level"
+        ),
     )
 
     analysis_raw = raw.get("analysis", {})
@@ -208,6 +231,8 @@ def validate_config(config: RunConfig, *, require_input: bool = True) -> None:
         raise ValueError(f"input path does not exist: {inp.path}")
     if require_input and not (inp.path.is_file() or inp.path.is_dir()):
         raise ValueError(f"input path is neither a file nor directory: {inp.path}")
+    if require_input and inp.flatfield_path is not None and not inp.flatfield_path.is_file():
+        raise ValueError(f"flat-field path is not a file: {inp.flatfield_path}")
     numeric_input = (inp.pixel_size_um, inp.frame_interval_s)
     if not all(
         isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -218,6 +243,10 @@ def validate_config(config: RunConfig, *, require_input: bool = True) -> None:
         raise ValueError("pixel_size_um and frame_interval_s must be finite")
     if inp.pixel_size_um <= 0 or inp.frame_interval_s <= 0:
         raise ValueError("pixel_size_um and frame_interval_s must be positive")
+    if not math.isfinite(inp.flatfield_dark_level):
+        raise ValueError("flatfield_dark_level must be finite")
+    if inp.flatfield_path is None and inp.flatfield_dark_level != 0:
+        raise ValueError("input.flatfield_dark_level requires input.flatfield_path")
     integer_input = (inp.frame_start, inp.frame_step, inp.spatial_bin)
     if not all(type(value) is int for value in integer_input):
         raise ValueError("frame_start, frame_step, and spatial_bin must be integers")
@@ -265,6 +294,11 @@ def validate_config(config: RunConfig, *, require_input: bool = True) -> None:
         "none",
     }:
         raise ValueError("analysis.window must be 'blackman-harris', 'hann', or 'none'")
+    if not isinstance(analysis.photobleach_method, str) or analysis.photobleach_method not in {
+        "none",
+        "global-exponential",
+    }:
+        raise ValueError("analysis.photobleach_method must be 'none' or 'global-exponential'")
     finite_values = (
         fit.beta_min,
         fit.beta_max,
@@ -276,6 +310,10 @@ def validate_config(config: RunConfig, *, require_input: bool = True) -> None:
         analysis.q_max_um_inv,
         fit.q_min_um_inv,
         fit.q_max_um_inv,
+        analysis.photobleach_background_level,
+        analysis.photobleach_min_r_squared,
+        analysis.photobleach_min_drop_fraction,
+        analysis.photobleach_max_gain,
     )
     if any(
         value is not None
@@ -286,7 +324,31 @@ def validate_config(config: RunConfig, *, require_input: bool = True) -> None:
         )
         for value in finite_values
     ):
-        raise ValueError("all q ranges and fit thresholds must be finite numbers")
+        raise ValueError("all q ranges and analysis/fit thresholds must be finite numbers")
+    if (
+        analysis.photobleach_method == "global-exponential"
+        and analysis.photobleach_background_level is None
+    ):
+        raise ValueError(
+            "analysis.photobleach_background_level is required when "
+            "photobleach_method='global-exponential'"
+        )
+    if analysis.photobleach_method == "none" and analysis.photobleach_background_level is not None:
+        raise ValueError(
+            "analysis.photobleach_background_level is only valid when "
+            "photobleach_method='global-exponential'"
+        )
+    if not 0 <= analysis.photobleach_min_r_squared <= 1:
+        raise ValueError("analysis.photobleach_min_r_squared must lie between zero and one")
+    if not 0 <= analysis.photobleach_min_drop_fraction < 1:
+        raise ValueError("analysis.photobleach_min_drop_fraction must lie in [0, 1)")
+    if analysis.photobleach_max_gain < 1:
+        raise ValueError("analysis.photobleach_max_gain must be at least one")
+    minimum_required_gain = 1.0 / (1.0 - analysis.photobleach_min_drop_fraction)
+    if minimum_required_gain > analysis.photobleach_max_gain:
+        raise ValueError(
+            "photobleach gates are incompatible: max_gain cannot accommodate min_drop_fraction"
+        )
     if not (0 < fit.beta_min < fit.beta_max):
         raise ValueError("fit beta bounds are invalid")
     if fit.min_points < 4:

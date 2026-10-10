@@ -7,7 +7,9 @@ MSD o una relajación mecánica— y contrastarla con PIV/optical flow.
 
 El repositorio contiene un MVP funcional que:
 
-- lee TIFF, NumPy y formatos de vídeo soportados por ImageIO/FFmpeg;
+- lee ND2 monocanal `TYX`, TIFF, NumPy y formatos de vídeo soportados por
+  ImageIO/FFmpeg, con selección directa de frames ND2;
+- permite flat-field divisivo en `float32`, antes del binning, sin clipping;
 - calcula una FFT por frame y reutiliza el resultado para lags logarítmicos;
 - evalúa
   \(D(q,\Delta t)=\langle|\tilde I(q,t+\Delta t)-\tilde I(q,t)|^2\rangle_t\);
@@ -51,6 +53,12 @@ Las calibraciones `pixel_size_um` y `frame_interval_s` son obligatorias y deben
 provenir del experimento, no asumirse a partir del contenedor de vídeo. Los
 vídeos y resultados están excluidos de Git.
 
+Para flat-field cuantitativo puede indicarse `input.flatfield_path` y, si se
+conoce, `input.flatfield_dark_level`. La operación aplicada es
+`(frame-dark)/(flat-dark)` con normalización por la mediana del flat; se rechazan
+denominadores no positivos. El archivo de referencia y su SHA-256 quedan en la
+procedencia de la corrida.
+
 ## Paralelismo recomendado en esta estación
 
 La estación detectada tiene 24 núcleos físicos/48 hilos, 64 GB de RAM y una
@@ -75,6 +83,7 @@ results/<run>/
 ├─ source_config.toml
 ├─ resolved_config.json
 ├─ provenance.json
+├─ photobleach_trace.csv
 ├─ ddm_radial.npz
 ├─ fits.csv
 └─ overview.png
@@ -83,6 +92,24 @@ results/<run>/
 `origin_sem` es sólo un diagnóstico entre orígenes temporales muestreados. Los
 pares se solapan y no son réplicas independientes; la inferencia final requiere
 bootstrap temporal por bloques y, sobre todo, réplicas de vídeo independientes.
+
+## Corrección opcional de photobleaching
+
+La configuración heredada conserva `analysis.photobleach_method = "none"`. El
+método opcional `"global-exponential"` ajusta de forma robusta
+`log(mean(frame) - background_level)` y aplica, frame a frame y en memoria, la
+ganancia inversa normalizada al primer frame seleccionado. Para activarlo es
+obligatorio proporcionar `photobleach_background_level`, medido de manera
+independiente; no se estima junto con la exponencial porque ambos parámetros
+quedan mal identificados.
+
+El ajuste sólo se aplica si supera las puertas configurables de R² en espacio
+log, caída mínima y ganancia máxima. Cada ejecución escribe
+`photobleach_trace.csv`, incluso con el método `"none"`, y guarda el diagnóstico
+en `provenance.json`. Cambios reales de ocupación, espesor, foco o contenido de
+la ROI también pueden cambiar la media y parecer photobleaching: para datos
+reales se recomienda comparar ejecuciones pareadas `none` y
+`global-exponential`, no sustituir una por la otra silenciosamente.
 
 ## Propuesta científica resumida
 

@@ -28,6 +28,11 @@ from .ddm import DDMResult, compute_radial_ddm
 from .fit import RelaxationFits, fit_relaxation
 from .io import directory_images, read_frames
 from .lags import logarithmic_lags
+from .preprocess import (
+    PhotobleachDiagnostics,
+    apply_photobleach_correction,
+    save_photobleach_trace,
+)
 
 
 def _sha256(path: Path, block_size: int = 8 * 1024 * 1024) -> str:
@@ -36,6 +41,15 @@ def _sha256(path: Path, block_size: int = 8 * 1024 * 1024) -> str:
         while block := handle.read(block_size):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _file_identity(path: Path) -> dict[str, Any]:
+    stat = path.stat()
+    return {
+        "size_bytes": stat.st_size,
+        "modified_utc": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+        "sha256": _sha256(path),
+    }
 
 
 def _selected_directory_images(config: InputConfig) -> list[Path]:
@@ -52,35 +66,40 @@ def _input_identity(config: InputConfig) -> dict[str, Any]:
 
     path = config.path
     if path.is_file():
-        stat = path.stat()
-        return {
+        identity: dict[str, Any] = {
             "kind": "file",
-            "size_bytes": stat.st_size,
-            "modified_utc": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
-            "sha256": _sha256(path),
+            **_file_identity(path),
         }
-    files = _selected_directory_images(config)
-    digest = hashlib.sha256()
-    total_size = 0
-    latest_mtime = 0.0
-    for item in files:
-        stat = item.stat()
-        total_size += stat.st_size
-        latest_mtime = max(latest_mtime, stat.st_mtime)
-        file_digest = _sha256(item)
-        digest.update(f"{item.name}\0{stat.st_size}\0{file_digest}\n".encode())
-    return {
-        "kind": "image_directory",
-        "file_count": len(files),
-        "size_bytes": total_size,
-        "latest_modified_utc": datetime.fromtimestamp(latest_mtime, UTC).isoformat()
-        if files
-        else None,
-        "sha256": digest.hexdigest(),
-        "hash_note": "hash covers ordered selected names, sizes, and each image's SHA-256",
-        "first_selected_file": files[0].name if files else None,
-        "last_selected_file": files[-1].name if files else None,
-    }
+    else:
+        files = _selected_directory_images(config)
+        digest = hashlib.sha256()
+        total_size = 0
+        latest_mtime = 0.0
+        for item in files:
+            stat = item.stat()
+            total_size += stat.st_size
+            latest_mtime = max(latest_mtime, stat.st_mtime)
+            file_digest = _sha256(item)
+            digest.update(f"{item.name}\0{stat.st_size}\0{file_digest}\n".encode())
+        identity = {
+            "kind": "image_directory",
+            "file_count": len(files),
+            "size_bytes": total_size,
+            "latest_modified_utc": datetime.fromtimestamp(latest_mtime, UTC).isoformat()
+            if files
+            else None,
+            "sha256": digest.hexdigest(),
+            "hash_note": "hash covers ordered selected names, sizes, and each image's SHA-256",
+            "first_selected_file": files[0].name if files else None,
+            "last_selected_file": files[-1].name if files else None,
+        }
+    if config.flatfield_path is not None:
+        identity["flatfield"] = {
+            "path": str(config.flatfield_path),
+            "dark_level": config.flatfield_dark_level,
+            **_file_identity(config.flatfield_path),
+        }
+    return identity
 
 
 def _version(distribution: str) -> str | None:
@@ -114,6 +133,7 @@ def _provenance(
     frames: np.ndarray,
     result: DDMResult,
     input_identity: dict[str, Any],
+    photobleach: PhotobleachDiagnostics,
 ) -> dict[str, Any]:
     repo = Path(__file__).resolve().parents[2]
     return {
@@ -130,7 +150,9 @@ def _provenance(
             "effective_pixel_size_um": result.pixel_size_um,
             "source_frame_interval_s": config.input.frame_interval_s,
             "effective_frame_interval_s": result.frame_interval_s,
+            "flatfield_applied": config.input.flatfield_path is not None,
         },
+        "photobleaching": photobleach.summary(),
         "software": {
             "repository_commit": _git_commit(repo),
             "python": sys.version,
@@ -139,6 +161,7 @@ def _provenance(
             "imageio": _version("imageio"),
             "imageio_ffmpeg": _version("imageio-ffmpeg"),
             "ffmpeg": imageio_ffmpeg.get_ffmpeg_version(),
+            "nd2": _version("nd2"),
             "tifffile": _version("tifffile"),
             "matplotlib": _version("matplotlib"),
             "threadpoolctl": _version("threadpoolctl"),
@@ -327,6 +350,10 @@ def validate_output_location(config: RunConfig) -> None:
         overlaps_input = is_same_or_ancestor(target, input_path)
     if overlaps_input:
         raise ValueError(f"output directory must not overlap the input data: {target}")
+    if config.input.flatfield_path is not None and is_same_or_ancestor(
+        target, config.input.flatfield_path.resolve()
+    ):
+        raise ValueError(f"output directory cannot contain the flat-field input: {target}")
 
 
 def _prepare_output(target: Path, overwrite: bool) -> None:
@@ -367,6 +394,25 @@ def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
         channel=config.input.channel,
         roi=config.input.roi,
         spatial_bin=config.input.spatial_bin,
+        flatfield_path=config.input.flatfield_path,
+        flatfield_dark_level=config.input.flatfield_dark_level,
+    )
+    effective_pixel = config.input.pixel_size_um * config.input.spatial_bin
+    effective_interval = config.input.frame_interval_s * config.input.frame_step
+    photobleach = apply_photobleach_correction(
+        frames,
+        frame_interval_s=effective_interval,
+        method=config.analysis.photobleach_method,
+        background_level=config.analysis.photobleach_background_level,
+        min_r_squared=config.analysis.photobleach_min_r_squared,
+        min_drop_fraction=config.analysis.photobleach_min_drop_fraction,
+        max_gain=config.analysis.photobleach_max_gain,
+    )
+    save_photobleach_trace(
+        config.output.directory / "photobleach_trace.csv",
+        photobleach,
+        source_frame_start=config.input.frame_start,
+        source_frame_step=config.input.frame_step,
     )
     lag_max = config.analysis.lag_max_frames
     lags = logarithmic_lags(
@@ -375,8 +421,6 @@ def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
         maximum=lag_max,
         per_decade=config.analysis.lags_per_decade,
     )
-    effective_pixel = config.input.pixel_size_um * config.input.spatial_bin
-    effective_interval = config.input.frame_interval_s * config.input.frame_step
     result = compute_radial_ddm(
         frames,
         pixel_size_um=effective_pixel,
@@ -407,7 +451,7 @@ def run_pipeline(config: RunConfig, *, workers: int | None = None) -> Path:
         _save_fits(config.output.directory / "fits.csv", fits)
     _save_npz(config.output.directory / "ddm_radial.npz", result, fits)
     _plot_overview(config.output.directory / "overview.png", result, fits)
-    provenance = _provenance(config, frames, result, input_identity)
+    provenance = _provenance(config, frames, result, input_identity, photobleach)
     (config.output.directory / "provenance.json").write_text(
         json.dumps(provenance, indent=2, sort_keys=True), encoding="utf-8"
     )

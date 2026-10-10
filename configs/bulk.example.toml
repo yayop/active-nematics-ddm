@@ -1,6 +1,8 @@
 # Copiar como configs/local.bulk.toml (ignorado por Git) y editar.
 [input]
 path = "../data/bulk_video.tif"
+# flatfield_path = "../data/flatfield.tif"
+# flatfield_dark_level = 0.0  # offset medido; no inferirlo del vídeo activo
 pixel_size_um = 0.325       # calibración física original [µm/pixel]
 frame_interval_s = 0.100    # timestamps reales o 1/fps [s]
 frame_start = 0
@@ -21,6 +23,13 @@ q_bins = 64
 # q_max_um_inv = 2.0
 window = "blackman-harris"
 subtract_frame_mean = true
+# Conservador por defecto. Para un análisis pareado, duplicar el TOML y usar:
+# photobleach_method = "global-exponential"
+# photobleach_background_level = 100.0  # medir de dark/background frames
+# photobleach_min_r_squared = 0.90
+# photobleach_min_drop_fraction = 0.02
+# photobleach_max_gain = 2.0
+photobleach_method = "none"
 workers = 8
 pair_batch_size = 16
 

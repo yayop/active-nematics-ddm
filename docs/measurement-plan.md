@@ -65,6 +65,8 @@ tratamiento. También conviene conservar dark/flat frames si existen.
 - Traslación/advección, advección+difusión y dos velocidades.
 - Textura/director rotante con periodicidad π.
 - Resultado raw frente a drift-corrected; el registro puede borrar flujo real.
+- Resultado `photobleach_method="none"` frente a `"global-exponential"`, con
+  background medido independientemente y revisión de `photobleach_trace.csv`.
 - Comparación con PIV/optical flow ya disponible en `AN-bulk`.
 
 Objetivo de validación sintética: error <5% en el rango declarado válido. Para
