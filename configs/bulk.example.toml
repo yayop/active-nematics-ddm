@@ -1,0 +1,42 @@
+# Copiar como configs/local.bulk.toml (ignorado por Git) y editar.
+[input]
+path = "../data/bulk_video.tif"
+pixel_size_um = 0.325       # calibración física original [µm/pixel]
+frame_interval_s = 0.100    # timestamps reales o 1/fps [s]
+frame_start = 0
+# frame_stop = 5000
+frame_step = 1
+# max_frames = 2000
+# channel = 0
+# roi = [0, 1024, 0, 1024]  # [y0, y1, x0, x1]
+spatial_bin = 1
+
+[analysis]
+lag_min_frames = 1
+# lag_max_frames = 500       # por defecto: n_frames / 4
+lags_per_decade = 12
+max_pairs_per_lag = 512
+q_bins = 64
+# q_min_um_inv = 0.1
+# q_max_um_inv = 2.0
+window = "blackman-harris"
+subtract_frame_mean = true
+workers = 8
+pair_batch_size = 16
+
+[fit]
+enabled = true
+# Fijar sólo después de inspeccionar SNR, baseline y plateau.
+# q_min_um_inv = 0.1
+# q_max_um_inv = 1.0
+beta_min = 0.25
+beta_max = 3.0
+min_points = 8
+min_r_squared = 0.8
+min_signal_to_sem = 5.0
+min_plateau_fraction = 0.8
+max_initial_fraction = 0.25
+
+[output]
+directory = "../results/bulk_example"
+overwrite = false

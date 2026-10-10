@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite this repository and the DDM methods listed in docs/literature.md."
+title: "Active Nematics DDM"
+type: software
+authors:
+  - family-names: "Rosas"
+    given-names: "Edgardo"
+version: 0.1.0
+date-released: 2026-10-10
+repository-code: "https://github.com/yayop/active-nematics-ddm"
+license: MIT

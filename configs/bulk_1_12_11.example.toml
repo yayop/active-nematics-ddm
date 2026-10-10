@@ -1,0 +1,41 @@
+# Piloto basado en los metadatos existentes en ParamsExp.
+# El NAS no estaba accesible al crear este archivo. Copiar este archivo como
+# `configs/local.bulk_1_12_11.toml` y reemplazar la ruta localmente.
+[input]
+path = "../data/Bulk_1_12_11/ImageSequence_divide_background_median"
+pixel_size_um = 0.7
+frame_interval_s = 0.5
+frame_start = 0
+frame_step = 1
+
+# Piloto de 20 min. La secuencia completa tiene 7200 frames (~60 min).
+max_frames = 2400
+
+# Binning 2× mantiene q_Nyquist ≈ 2.24 rad/µm y reduce frames+FFT de
+# ~102 GB a ~25.5 GB para la hora completa; el piloto usa bastante menos.
+spatial_bin = 2
+
+[analysis]
+lag_min_frames = 1
+lag_max_frames = 240       # 120 s; T/10 para este piloto
+lags_per_decade = 12
+max_pairs_per_lag = 384
+q_bins = 72
+window = "blackman-harris"
+subtract_frame_mean = true
+workers = 8
+pair_batch_size = 8
+
+[fit]
+enabled = true
+beta_min = 0.25
+beta_max = 3.0
+min_points = 10
+min_r_squared = 0.8
+min_signal_to_sem = 5.0
+min_plateau_fraction = 0.8
+max_initial_fraction = 0.25
+
+[output]
+directory = "../results/bulk_1_12_11_pilot"
+overwrite = false

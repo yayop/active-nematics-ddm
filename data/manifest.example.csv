@@ -1,0 +1,2 @@
+video_id,path,condition,replicate,pixel_size_um,frame_interval_s,notes
+bulk_example,C:/path/to/video.tif,bulk,1,0.325,0.1,replace with measured metadata

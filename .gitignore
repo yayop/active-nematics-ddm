@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+dist/
+build/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Experimental inputs and generated outputs: never commit microscopy data.
+data/*
+!data/README.md
+!data/manifest.example.csv
+results/*
+!results/README.md
+
+# Local configuration may contain machine-specific absolute paths.
+configs/local*.toml
